@@ -13,12 +13,14 @@ public class Client implements Runnable {
 	private Socket sock;
 	private InputStream in;
 	private OutputStream out;
+	private boolean muted;
 	private boolean running;
 	private Thread listener;
 
 	public Client(Server server, Socket sock){
 		this.server = server;
 		this.sock = sock;
+		this.muted = false;
 		try {
 			in = sock.getInputStream();
 			out = sock.getOutputStream();
@@ -70,10 +72,10 @@ public class Client implements Runnable {
 		while(running){
 			try {
 				in.read(sizefield, 0, 4);
-				int size = ((int) sizefield[0]) << 24 |
-						((int) sizefield[1]) << 16 |
-						((int) sizefield[2]) << 8 |
-						((int) sizefield[3]);
+				int size = (sizefield[0] & 0xff) << 24 |
+						(sizefield[1] & 0xff) << 16 |
+						(sizefield[2] & 0xff) << 8 |
+						(sizefield[3] & 0xff);
 				if(buf.length < size) buf = new byte[size];
 				in.read(buf, 0, size);
 				server.input(this, new String(buf, 0, size));
@@ -95,6 +97,14 @@ public class Client implements Runnable {
 
 	public int port(){
 		return sock.getPort();
+	}
+
+	public void setMuted(boolean muted){
+		this.muted = muted;
+	}
+
+	public boolean isMuted(){
+		return muted;
 	}
 
 	protected void finalize(){

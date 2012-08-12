@@ -31,6 +31,7 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 	private JButton stop;
 	private JButton evict;
 	private JButton setServer;
+	private JButton mute;
 	private JButton send;
 	private JTextField msg;
 	private JTable clients;
@@ -103,6 +104,10 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 		evict.setEnabled(false);
 		evict.addActionListener(this);
 		clientControls.add(evict);
+		mute = new JButton("Mute");
+		mute.setEnabled(false);
+		mute.addActionListener(this);
+		clientControls.add(mute);
 		window.add(clientControls);
 		JPanel msgPanel = new JPanel();
 		msg = new JTextField(12);
@@ -155,9 +160,14 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 		start.setEnabled(!isRunning);
 		stop.setEnabled(isRunning);
 		send.setEnabled(isRunning);
-		boolean hasSelection = clients.getSelectedRow() != -1;
+		int row = clients.getSelectedRow();
+		boolean hasSelection = row != -1;
 		setServer.setEnabled(hasSelection && server.getType() == 1);
 		evict.setEnabled(hasSelection);
+		mute.setEnabled(hasSelection);
+		boolean muted = false;
+		if(hasSelection) muted = server.getClients().get(row).isMuted();
+		mute.setText((muted) ? "Unmute" : "Mute");
 	}
 
 	public void setLogging(boolean enabled){
@@ -197,6 +207,16 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 			if(s.equals("")) return;
 			log("Sending message \"" + s + "\" to all clients");
 			server.sendToClientsExcept(s, null);
+		} else if(action.equals("Mute")){
+			int client = clients.getSelectedRow();
+			if(client == -1) return;
+			server.getClients().get(client).setMuted(true);
+			updateButtons();
+		} else if(action.equals("Unmute")){
+			int client = clients.getSelectedRow();
+			if(client == -1) return;
+			server.getClients().get(client).setMuted(false);
+			updateButtons();
 		}
 	}
 

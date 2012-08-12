@@ -82,6 +82,10 @@ public class Server implements Runnable {
 	}
 
 	public void input(Client c, String s){
+		if(c.isMuted()){
+			gui.log("Muted client " + c.ip() + " tried to send message \"" + s + "\"!");
+			return;
+		}
 		gui.log("Received input \"" + s + "\" from client at IP " + c.ip());
 		if(type == 0 || casHost == c){
 			sendToClientsExcept(s, c);
