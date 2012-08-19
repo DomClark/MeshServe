@@ -1,5 +1,26 @@
+/*
+ *  Copyright © 2012 Dominic Clark (TheSuccessor)
+ *
+ *  This file is part of MeshServe.
+ *
+ *  MeshServe is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  MeshServe is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with MeshServe.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 package org.domclark.meshserve;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.BindException;
 import java.net.InetAddress;
@@ -23,7 +44,8 @@ public class Server implements Runnable {
 	private int maxClients;
 	private ServerSocket sock;
 	private List<Client> clients;
-	private Client casHost;
+	private List<Group> groups;
+	private Group defaultGroup;
 	private boolean running;
 	private Thread serverThread;
 	private int type;
@@ -33,12 +55,15 @@ public class Server implements Runnable {
 		this.gui = gui;
 		maxClients = 20;
 		clients = new ArrayList<Client>(maxClients);
-		casHost = null;
+		groups = new ArrayList<Group>();
+		groups.add(new Group("Default group"));
+		defaultGroup = groups.get(0);
 		ipAddress = "127.0.0.1";
 	}
 
 	public boolean addConnection(Client c){
 		if(clients.size() >= maxClients) return false;
+		if(!defaultGroup.addClient(c)) return false;
 		clients.add(c);
 		gui.log("Client joined from IP " + c.ip());
 		gui.clientUpdated(true);
@@ -47,7 +72,7 @@ public class Server implements Runnable {
 
 	public void removeConnection(Client c){
 		clients.remove(c);
-		if(casHost == c) casHost = null;
+		if(c.isHost()) c.getGroup().setHost(null);
 		gui.log("Client left from IP " + c.ip());
 		gui.clientUpdated(false);
 		gui.updateButtons();
@@ -82,27 +107,55 @@ public class Server implements Runnable {
 	}
 
 	public void input(Client c, String s){
+		if(s.isEmpty()) return;
 		if(c.isMuted()){
 			gui.log("Muted client " + c.ip() + " tried to send message \"" + s + "\"!");
 			return;
 		}
-		gui.log("Received input \"" + s + "\" from client at IP " + c.ip());
-		if(type == 0 || casHost == c){
-			sendToClientsExcept(s, c);
+		if(s.startsWith("broadcast \"<")){
+			s = s.substring(12, s.length() - 1);
+			for(Group g : groups)
+				if(g.getType() == 0 && g.getName().equals(s)){
+					gui.log("Client " + c.ip() + " joining group " + s);
+					g.addClient(c);
+					gui.clientUpdated(false);
+					break;
+				}
 			return;
 		}
-		if(casHost != null) casHost.write(s);
+		gui.log("Received input \"" + s + "\" from client at IP " + c.ip());
+		synchronized(c.getGroup()){
+			Group g = c.getGroup();
+			if(type == 0 || c.isHost()){
+				g.sendToClientsExcept(s, c);
+				return;
+			}
+			if(g.getHost() != null) g.getHost().write(s);
+		}
 	}
 
 	public void sendToClientsExcept(String send, Client exception){
 		for(Client c : clients) if(c != exception) c.write(send);
 	}
 
+	/*public void connectToServer(String addr){
+		try {
+			Socket s = new Socket(addr, MESH_PORT);
+			host = new Client(this, s);
+			host.listen();
+			gui.clientUpdated(true);
+		} catch (IOException e) {
+			gui.log("Failed to connect to server \"" + addr + "\":");
+			gui.log(e);
+		}
+	}*/
+
 	public void run(){
 		try {
 			sock = new ServerSocket(MESH_PORT, 50, InetAddress.getByName(ipAddress));
 		} catch(BindException e){
-			gui.log("IP / host name \"" + ipAddress + "\" is invalid!");
+			gui.log("IP / host name \"" + ipAddress + "\" is invalid, or port is occupied!");
+			gui.log(e);
 			return;
 		} catch (IOException e) {
 			gui.log(e);
@@ -137,6 +190,18 @@ public class Server implements Runnable {
 		return clients;
 	}
 
+	public List<Group> getGroups(){
+		return groups;
+	}
+
+	public Group getDefaultGroup(){
+		return defaultGroup;
+	}
+
+	public void setDefaultGroup(Group g){
+		defaultGroup = g;
+	}
+
 	public boolean isRunning(){
 		return running;
 	}
@@ -157,14 +222,27 @@ public class Server implements Runnable {
 		return ipAddress;
 	}
 
-	public void setHost(Client host){
-		casHost = host;
-		if(!clients.contains(host)) clients.add(host);
-		gui.clientUpdated(false);
+	public void readFrom(DataInputStream dis) throws IOException{
+		type = dis.readInt();
+		maxClients = dis.readInt();
+		ipAddress = dis.readUTF();
+		int numGroups = dis.readInt();
+		if(numGroups > 0) groups.clear();
+		for(int i = 0; i < numGroups; i++){
+			Group g = new Group();
+			g.readFrom(dis);
+			groups.add(g);
+		}
+		defaultGroup = groups.get(dis.readInt());
 	}
 
-	public Client getHost(){
-		return casHost;
+	public void writeOn(DataOutputStream dos) throws IOException{
+		dos.writeInt(type);
+		dos.writeInt(maxClients);
+		dos.writeUTF(ipAddress);
+		dos.writeInt(groups.size());
+		for(Group g : groups) g.writeOn(dos);
+		dos.writeInt(groups.indexOf(defaultGroup));
 	}
 
 }

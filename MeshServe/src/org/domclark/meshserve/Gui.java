@@ -1,3 +1,22 @@
+/*
+ *  Copyright © 2012 Dominic Clark (TheSuccessor)
+ *
+ *  This file is part of MeshServe.
+ *
+ *  MeshServe is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  MeshServe is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with MeshServe.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 package org.domclark.meshserve;
 
 import java.awt.Dimension;
@@ -5,6 +24,12 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
@@ -23,6 +48,8 @@ import javax.swing.event.ListSelectionListener;
 import javax.swing.table.AbstractTableModel;
 
 public class Gui implements WindowListener, ActionListener, ListSelectionListener {
+
+	private static final int fileVersion = 1;
 
 	private JFrame window;
 	private JTextArea log;
@@ -63,11 +90,11 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 		clients = new JTable();
 		clientModel = new AbstractTableModel(){
 
-			private static final long serialVersionUID = 5318008L;
+			private static final long serialVersionUID = 4517734L;
 			private final String[] colNames = new String[]{
-				"ID",
 				"IP address",
-				"Port number"
+				"Port number",
+				"Group"
 			};
 
 			public int getRowCount() {
@@ -84,11 +111,30 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 
 			public Object getValueAt(int rowIndex, int columnIndex) {
 				Client c = server.getClients().get(rowIndex);
-				if(columnIndex == 1) return c.ip();
-				if(columnIndex == 2) return c.port();
-				return (rowIndex + 1) + ((server.getType() == 1 && server.getHost() == c) ? " (server)" : "");
+				if(columnIndex == 0) return c.ip();
+				else if(columnIndex == 1) return c.port();
+				else return c.getGroup().getName();
 			}
-			
+
+			public Class<?> getColumnClass(int c){
+				return String.class;
+			}
+
+			public boolean isCellEditable(int row, int col){
+				return col == 2;
+			}
+
+			public void setValueAt(Object value, int row, int col){
+				if(col != 2) return;
+				Client c = server.getClients().get(row);
+				if(c.getGroup().getName().equals(value)) return;
+				Group newGroup = null;
+				for(Group g : server.getGroups()) if(g.getName().equals(value)) newGroup = g;
+				if(newGroup == null) return;
+				newGroup.addClient(c);
+				fireTableCellUpdated(row, col);
+			}
+
 		};
 		clients.setModel(clientModel);
 		clients.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -123,6 +169,7 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 		JScrollPane logScroller = new JScrollPane(log);
 		window.add(logScroller);
 		window.pack();
+		readOptions();
 		window.setVisible(true);
 	}
 
@@ -138,8 +185,10 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 
 	public void log(Throwable e){
 		StringWriter sw = new StringWriter();
-		e.printStackTrace(new PrintWriter(sw));
+		PrintWriter pw = new PrintWriter(sw);
+		e.printStackTrace(pw);
 		log(sw.toString(), true);
+		pw.close();
 	}
 
 	public void clearLog(){
@@ -170,6 +219,38 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 		mute.setText((muted) ? "Unmute" : "Mute");
 	}
 
+	public void saveOptions(){
+		File f = new File("meshserve.dat");
+		try {
+			f.createNewFile();
+			DataOutputStream dos = new DataOutputStream(new FileOutputStream(f));
+			dos.writeInt(fileVersion);
+			dos.writeBoolean(loggingEnabled);
+			server.writeOn(dos);
+			dos.close();
+		} catch (IOException e) {
+			log("Failed to save settings:", true);
+			log(e);
+		}
+	}
+
+	public void readOptions(){
+		File f = new File("meshserve.dat");
+		if(!f.exists()) return;
+		try {
+			DataInputStream dis = new DataInputStream(new FileInputStream(f));
+			int version = dis.readInt();
+			if(version != fileVersion) throw new IOException("Invalid settings file version! " +
+					"(Found " + version + ", required " + fileVersion + ")");
+			loggingEnabled = dis.readBoolean();
+			server.readFrom(dis);
+			dis.close();
+		} catch (IOException e) {
+			log("Failed to load settings:", true);
+			log(e);
+		}
+	}
+
 	public void setLogging(boolean enabled){
 		loggingEnabled = enabled;
 	}
@@ -190,7 +271,7 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 			int client = clients.getSelectedRow();
 			if(client == -1) return;
 			Client c = server.getClients().get(client);
-			if(server.getHost() == c && server.getType() == 1)
+			if(c.isHost() && server.getType() == 1)
 				if(!((JOptionPane.showConfirmDialog(
 						window,
 						"You are trying to evict the host of a " + Server.TYPES[1] + " type server. Continue?",
@@ -201,7 +282,7 @@ public class Gui implements WindowListener, ActionListener, ListSelectionListene
 			int client = clients.getSelectedRow();
 			if(client == -1) return;
 			Client c = server.getClients().get(client);
-			server.setHost(c);
+			c.getGroup().setHost(c);
 		} else if(action.equals("Send message") && server.isRunning()){
 			String s = msg.getText();
 			if(s.equals("")) return;

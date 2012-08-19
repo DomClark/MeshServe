@@ -1,3 +1,22 @@
+/*
+ *  Copyright © 2012 Dominic Clark (TheSuccessor)
+ *
+ *  This file is part of MeshServe.
+ *
+ *  MeshServe is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  MeshServe is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with MeshServe.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 package org.domclark.meshserve;
 
 import java.io.IOException;
@@ -5,7 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 
-public class Client implements Runnable {
+public class Client implements Runnable, Comparable<Client> {
 
 	private static int exceptionBreak = 12;
 
@@ -16,6 +35,7 @@ public class Client implements Runnable {
 	private boolean muted;
 	private boolean running;
 	private Thread listener;
+	private Group group;
 
 	public Client(Server server, Socket sock){
 		this.server = server;
@@ -35,7 +55,7 @@ public class Client implements Runnable {
 		listener.start();
 	}
 
-	public void write(String s){
+	public synchronized void write(String s){
 		byte[] string = s.getBytes();
 		int size = string.length;
 		byte[] sizefield = new byte[]{
@@ -107,6 +127,20 @@ public class Client implements Runnable {
 		return muted;
 	}
 
+	public void setGroup(Group group){
+		this.group = group;
+	}
+
+	public Group getGroup(){
+		return group;
+	}
+
+	public boolean isHost(){
+		Client c = group.getHost();
+		if(c == null) return false;
+		return c == this;
+	}
+
 	protected void finalize(){
 		running = false;
 		try {
@@ -115,6 +149,10 @@ public class Client implements Runnable {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	public int compareTo(Client o) {
+		return this.group.getName().compareTo(o.group.getName());
 	}
 
 }
